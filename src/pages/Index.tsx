@@ -61,28 +61,45 @@ const Index = () => {
 
   const getChickenMessage = () => {
     const { strength, stamina, mood, currentLevelStrength } = stats;
-    
+    const strengthMax = 120;
+    const staminaMax = 900;
+
+    // if stamina is fully depleted, prefer the rest message immediately
     if (stamina <= 0) {
-      return "咕咕！今天運動量已經足夠了，休息也很重要喔！🌟";
+      return "咕咕！今天運動量已經足夠了，先好好休息並補充能量吧！🌟";
     }
-    
-    if (mood > 80) {
-      return "咕咕！心情超好！繼續保持運動習慣喔！💪";
+
+    // compute normalized percentages for prioritization (0..1)
+    const pStrength = (currentLevelStrength ?? 0) / strengthMax;
+    const pStamina = (stamina ?? 0) / staminaMax;
+    const pMood = (mood ?? 0) / 100;
+
+    // urgent / critical thresholds (show these first)
+    if (pStamina <= 0.25) {
+      return `體力很低（${stamina}/${staminaMax}），先休息並補充能量吧！`;
     }
-    
-    if (mood > 60) {
-      return "咕咕～感覺還不錯呢！";
+    if (pStrength <= 0.25) {
+      return `力量很低（${currentLevelStrength}/${strengthMax}），建議做簡單基礎訓練並給予休息或營養補充。`;
     }
-    
-    if (currentLevelStrength < 60) {
-      return "咕咕...今天還沒達標呢，記得要運動至少10分鐘喔！";
+    if (pMood <= 0.4) {
+      return `心情較差（${mood}），可以做些放鬆或聽音樂喔。`;
     }
-    
-    if (mood <= 40) {
-      return "咕...好久沒運動了，我快要生鏽了...";
+
+    // otherwise pick the stat that is currently the lowest proportionally
+    const minProp = Math.min(pStrength, pStamina, pMood);
+    if (minProp === pStrength) {
+      if (pStrength <= 0.5) return `力量有點不足（${currentLevelStrength}/${strengthMax}），持續訓練會有進步！`;
+      return `力量良好（${currentLevelStrength}/${strengthMax}），繼續保持！`;
     }
-    
-    return "咕咕！準備好一起運動了嗎？";
+    if (minProp === pStamina) {
+      if (pStamina <= 0.5) return `體力有點不足（${stamina}/${staminaMax}），建議做溫和運動或補充能量。`;
+      return `體力狀態良好（${stamina}/${staminaMax}），可以安心運動。`;
+    }
+
+    // mood is the lowest (or tie fallback)
+    if (pMood > 0.8) return `咕咕！心情超好（${mood}），繼續保持運動習慣喔！💪`;
+    if (pMood > 0.6) return `咕咕～感覺還不錯呢（${mood}）！`;
+    return `咕咕！準備好一起運動了嗎？`;
   };
 
   // 入場動畫：egg 旋轉 -> hatch pop -> 顯示 small 並關閉 overlay
@@ -293,7 +310,16 @@ const Index = () => {
               
               {/* Pet Display (no white frame). Speech bubble moves with the pet via Pet.message prop */}
               <div className="flex justify-center">
-                <Pet stage={petStage} mood={stats.mood} message={getChickenMessage()} />
+                <Pet
+                  stage={petStage}
+                  mood={stats.mood}
+                  message={getChickenMessage()}
+                  startMessageTimer={!showEntrance}
+                  strength={stats.currentLevelStrength}
+                  strengthMax={120}
+                  stamina={stats.stamina}
+                  staminaMax={900}
+                />
               </div>
 
 
