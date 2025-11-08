@@ -38,9 +38,10 @@ const Index = () => {
       if (userId && !hasCheckedDaily) {
         try {
           const result = await performDailyCheck(userId);
+          // Only show toast if exercise was insufficient
           if (!result.exercised_enough) {
             toast({
-              title: "每日檢查",
+              title: "昨天運動量不足！",
               description: result.message,
               variant: "destructive",
             });
