@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useUser } from "@/hooks/useUser";
 import { useLocation } from "@/hooks/useLocation";
 import { useManualRain } from "@/hooks/useWeather";
-import { logExercise, updateUserPet } from "@/lib/api";
+import { logExercise, updateUserPet, getDailyStats } from "@/lib/api";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -170,20 +170,22 @@ const Exercise: React.FC = () => {
 
   // 載入今日累計數據
   useEffect(() => {
-    if (pet) {
-      const exerciseSeconds = pet.daily_exercise_seconds ?? 0;
-      const steps = pet.daily_steps ?? 0;
-      
-      console.log('Exercise - Loading daily stats:', {
-        daily_exercise_seconds: exerciseSeconds,
-        daily_steps: steps,
-        calculated_minutes: Math.floor(exerciseSeconds / 60)
-      });
-      
-      setDailyMinutes(Math.floor(exerciseSeconds / 60));
-      setDailySteps(steps);
-    }
-  }, [pet]);
+    const loadDailyStats = async () => {
+      if (!userId) return;
+
+      try {
+        const stats = await getDailyStats(userId);
+        console.log('Exercise - Daily stats from API:', stats);
+
+        setDailyMinutes(Math.floor(stats.daily_exercise_seconds / 60));
+        setDailySteps(stats.daily_steps);
+      } catch (error) {
+        console.error('Failed to load daily stats:', error);
+      }
+    };
+
+    loadDailyStats();
+  }, [userId]);
 
   const startExercise = () => {
     // 檢查體力是否足夠
@@ -338,7 +340,7 @@ const Exercise: React.FC = () => {
             daily_exercise_seconds: result.pet?.daily_exercise_seconds,
             daily_steps: result.pet?.daily_steps
           });
-          
+
           // 計算力量增長 = 運動後力量 - 運動前力量
           const strengthAfter = result.pet?.strength || 0;
           const strengthGained = strengthAfter - strengthBefore;
@@ -375,6 +377,15 @@ const Exercise: React.FC = () => {
 
           // 刷新寵物數據（運動統計已在後端 log_exercise 中自動更新）
           await refreshPet();
+
+          // 重新載入今日累計數據
+          try {
+            const stats = await getDailyStats(userId);
+            setDailyMinutes(Math.floor(stats.daily_exercise_seconds / 60));
+            setDailySteps(stats.daily_steps);
+          } catch (error) {
+            console.error('Failed to reload daily stats:', error);
+          }
         })
         .catch((error) => {
           console.error("Failed to log exercise:", error);

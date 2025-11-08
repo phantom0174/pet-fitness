@@ -208,6 +208,15 @@ export async function getUserPet(userId: string): Promise<Pet> {
     return response.json();
 }
 
+export async function getDailyStats(userId: string): Promise<DailyStats> {
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/daily-stats`);
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to get daily stats");
+    }
+    return response.json();
+}
+
 export async function updateUserPet(userId: string, petUpdate: PetUpdate): Promise<Pet> {
     const response = await fetch(`${API_BASE_URL}/users/${userId}/pet`, {
         method: "PATCH",
