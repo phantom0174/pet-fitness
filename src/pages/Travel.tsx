@@ -93,7 +93,7 @@ const Travel = () => {
       <div className="max-w-md mx-auto space-y-4">
         <Button
           variant="ghost"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/")}
           className="mb-4"
           style={{ color: 'var(--tp-primary-700)' }}
         >
@@ -170,11 +170,7 @@ const Travel = () => {
             {landmarks.map((landmark, index) => (
               <div
                 key={index}
-                role="button"
-                tabIndex={0}
-                title={landmark.description}
-                aria-label={`選擇 ${landmark.name}，獎勵：${getBonusText(landmark.bonus)}`}
-                className="rounded-lg p-3 cursor-pointer transition-all hover:shadow-md flex items-start justify-between focus:outline-none focus:ring-2 focus:ring-offset-1"
+                className="rounded-lg p-3 cursor-pointer transition-all hover:shadow-md flex items-start justify-between"
                 style={{ 
                   backgroundColor: selectedLandmark?.name === landmark.name 
                     ? 'var(--tp-primary-100)' 
@@ -182,12 +178,6 @@ const Travel = () => {
                   borderLeft: `4px solid var(--tp-primary-500)`
                 }}
                 onClick={() => setSelectedLandmark(landmark)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelectedLandmark(landmark);
-                  }
-                }}
               >
                 <div className="flex-1">
                   <div className="tp-body-semibold" style={{ color: 'var(--tp-grayscale-800)' }}>

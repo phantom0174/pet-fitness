@@ -1,5 +1,7 @@
 import { Card } from "@/components/ui/card";
-import { Calendar, TrendingUp, Activity } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Calendar, TrendingUp, Activity } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const mockHistory = [
   { date: "2025-01-07", exercise: 25, strength: 150, mood: 85 },
@@ -10,9 +12,20 @@ const mockHistory = [
 ];
 
 const Status = () => {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen p-4" style={{ backgroundColor: 'var(--tp-primary-50)' }}>
       <div className="max-w-md mx-auto space-y-4">
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/")}
+          className="mb-2 p-0"
+          style={{ color: 'var(--tp-primary-700)' }}
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          返回
+        </Button>
+
         <div className="tp-h2-semibold" style={{ color: 'var(--tp-primary-700)' }}>
           運動狀態
         </div>
