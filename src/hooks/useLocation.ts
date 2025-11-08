@@ -30,6 +30,18 @@ export const useLocation = (): UseLocationReturn => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const listenerRef = useRef<((event: MessageEvent) => void) | null>(null);
+    const timeoutRef = useRef<number | null>(null);
+
+    const cleanup = useCallback(() => {
+        if (listenerRef.current && window.flutterObject) {
+            window.flutterObject.removeEventListener('message', listenerRef.current);
+            listenerRef.current = null;
+        }
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+    }, []);
 
     const getLocation = useCallback(async (): Promise<LocationResponse | null> => {
         setLoading(true);
@@ -38,76 +50,85 @@ export const useLocation = (): UseLocationReturn => {
         // 先嘗試使用 TownPass flutterObject
         if (typeof window.flutterObject !== 'undefined') {
             return new Promise((resolve) => {
-                // 清理舊的監聽器
-                if (listenerRef.current) {
-                    window.flutterObject?.removeEventListener('message', listenerRef.current);
-                }
+                cleanup();
 
-                // 設定監聽器接收回應
                 const handleMessage = (event: MessageEvent) => {
                     try {
-                        const response = JSON.parse(event.data);
+                        console.log('Location raw event.data:', event.data);
+                        const response = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                        console.log('Location parsed response:', response);
 
                         // 確認是 location 的回應
                         if (response.name === 'location') {
-                            window.flutterObject?.removeEventListener('message', handleMessage);
-                            listenerRef.current = null;
+                            cleanup();
 
-                            const locationData: LocationResponse = response.data;
-                            setLocation(locationData);
-                            setLoading(false);
+                            let locationData = response.data;
+                            console.log('Location data before parsing:', locationData);
 
-                            if (locationData.success) {
-                                console.log('位置資訊 (TownPass):', locationData);
-                                resolve(locationData);
+                            // If data is a string, parse it
+                            if (typeof locationData === 'string') {
+                                locationData = JSON.parse(locationData);
+                            }
+
+                            console.log('Location data after parsing:', locationData);
+
+                            // Check if location was successful
+                            if (locationData && locationData.success) {
+                                const result: LocationResponse = {
+                                    success: true,
+                                    latitude: locationData.latitude,
+                                    longitude: locationData.longitude,
+                                    accuracy: locationData.accuracy,
+                                    altitude: locationData.altitude,
+                                    heading: locationData.heading,
+                                    speed: locationData.speed,
+                                    timestamp: locationData.timestamp,
+                                };
+                                console.log('位置資訊 (TownPass):', result);
+                                setLocation(result);
+                                setLoading(false);
+                                resolve(result);
                             } else {
-                                const errorMsg = locationData.message || '獲取位置失敗';
-                                console.error('獲取位置失敗:', errorMsg);
+                                const errorMsg = locationData?.message || locationData?.error || '獲取位置失敗';
+                                console.error('TownPass 獲取位置失敗:', errorMsg, locationData);
                                 setError(errorMsg);
+                                setLoading(false);
                                 resolve(null);
                             }
                         }
-                    } catch (error) {
-                        console.error('解析回應失敗:', error);
+                    } catch (err) {
+                        console.error('解析位置回應失敗:', err);
                         setError('解析位置資訊失敗');
                         setLoading(false);
+                        cleanup();
                         resolve(null);
                     }
                 };
 
                 listenerRef.current = handleMessage;
-
-                // 註冊監聽器
                 window.flutterObject.addEventListener('message', handleMessage);
+
+                // 設定超時
+                timeoutRef.current = window.setTimeout(() => {
+                    console.warn('位置請求超時');
+                    setError('請求超時');
+                    setLoading(false);
+                    cleanup();
+                    resolve(null);
+                }, 10000);
 
                 // 發送請求
                 try {
-                    window.flutterObject.postMessage(
-                        JSON.stringify({
-                            name: 'location',
-                            data: null
-                        })
-                    );
-                } catch (error) {
-                    console.error('發送請求失敗:', error);
+                    const message = JSON.stringify({ name: 'location', data: null });
+                    console.log('Sending location request:', message);
+                    window.flutterObject.postMessage(message);
+                } catch (err) {
+                    console.error('發送位置請求失敗:', err);
                     setError('發送位置請求失敗');
                     setLoading(false);
-                    window.flutterObject?.removeEventListener('message', handleMessage);
-                    listenerRef.current = null;
+                    cleanup();
                     resolve(null);
                 }
-
-                // 設定超時
-                setTimeout(() => {
-                    if (listenerRef.current === handleMessage) {
-                        window.flutterObject?.removeEventListener('message', handleMessage);
-                        listenerRef.current = null;
-                        setError('請求超時');
-                        setLoading(false);
-                        console.warn('位置請求超時');
-                        resolve(null);
-                    }
-                }, 10000);
             });
         }
 
@@ -141,21 +162,21 @@ export const useLocation = (): UseLocationReturn => {
                         setLoading(false);
                         resolve(locationData);
                     },
-                    (error) => {
+                    (err) => {
                         let errorMsg = '獲取位置失敗';
-                        switch (error.code) {
-                            case error.PERMISSION_DENIED:
+                        switch (err.code) {
+                            case err.PERMISSION_DENIED:
                                 errorMsg = '位置權限被拒絕';
                                 break;
-                            case error.POSITION_UNAVAILABLE:
+                            case err.POSITION_UNAVAILABLE:
                                 errorMsg = '位置資訊不可用';
                                 break;
-                            case error.TIMEOUT:
+                            case err.TIMEOUT:
                                 errorMsg = '獲取位置超時';
                                 break;
                         }
 
-                        console.error('Geolocation 錯誤:', error);
+                        console.error('Geolocation 錯誤:', err);
                         setError(errorMsg);
                         setLoading(false);
                         resolve(null);
@@ -168,7 +189,7 @@ export const useLocation = (): UseLocationReturn => {
                 );
             });
         }
-    }, []);
+    }, [cleanup]);
 
     return {
         location,
