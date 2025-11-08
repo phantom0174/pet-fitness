@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useUser } from "@/hooks/useUser";
 import { useLocation } from "@/hooks/useLocation";
+import { useManualRain } from "@/hooks/useWeather";
 import { logExercise, updateUserPet } from "@/lib/api";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ const Exercise: React.FC = () => {
   const navigate = useNavigate();
   const { userId, pet, refreshPet } = useUser();
   const { getLocation } = useLocation();
+  const { manualRain, setManualRain } = useManualRain();
 
   const [isExercising, setIsExercising] = useState(false);
   const isExercisingRef = useRef(false);
@@ -85,7 +87,7 @@ const Exercise: React.FC = () => {
 
   // minimal UI controls: user can mark "outdoor" and "raining" for rewards
   const [isOutdoor, setIsOutdoor] = useState<boolean>(false);
-  const [manualRain, setManualRain] = useState<boolean>(false);
+  // manualRain 已改用全局 hook (useManualRain)
 
   // automatic weather detection state
   const [isRainingDetected, setIsRainingDetected] = useState<boolean>(false);
