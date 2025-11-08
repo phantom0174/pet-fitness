@@ -105,7 +105,7 @@ const Welcome = () => {
                             <p>ReactNative: {(window as any).ReactNativeWebView ? 'Yes' : 'No'}</p>
                             <p>Window keys with 'town': {Object.keys(window).filter(k => k.toLowerCase().includes('town')).join(', ') || 'None'}</p>
                             <p>Window keys with 'flutter': {Object.keys(window).filter(k => k.toLowerCase().includes('flutter')).join(', ') || 'None'}</p>
-                        </div>
+                        </div>  
                         <Button
                             onClick={() => {
                                 requestTownPassUser();
