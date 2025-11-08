@@ -30,6 +30,11 @@ export interface Pet {
     breakthrough_completed: boolean;
     updated_at: string;
     last_daily_check?: string | null;
+    daily_steps?: number;  // 今日步數
+    daily_exercise_seconds?: number;  // 今日運動秒數
+    daily_quest_1_completed?: boolean;
+    daily_quest_2_completed?: boolean;
+    daily_quest_3_completed?: boolean;
 }
 
 export interface PetUpdate {

@@ -21,37 +21,6 @@ function formatDuration(totalSeconds: number): string {
 const Status = () => {
   const navigate = useNavigate();
   const { userId, pet, refreshPet } = useUser();
-  const [todaySteps, setTodaySteps] = useState<number | null>(null);
-  const [todayExerciseSeconds, setTodayExerciseSeconds] = useState<number | null>(null);
-
-  // Fetch user's exercise logs (from getUser) and compute today's totals
-  useEffect(() => {
-    const fetchUserAndCompute = async () => {
-      if (!userId) return;
-      try {
-        const u = await getUser(userId);
-        const logs = u.exercise_logs ?? [];
-        const today = new Date().toISOString().split("T")[0];
-        let stepsSum = 0;
-        let secondsSum = 0;
-        for (const l of logs) {
-          const date = l.created_at.split("T")[0];
-          if (date === today) {
-            // assume volume represents steps for step-type exercises
-            stepsSum += Number(l.volume ?? 0);
-            secondsSum += Number(l.duration_seconds ?? 0);
-          }
-        }
-        setTodaySteps(stepsSum);
-        setTodayExerciseSeconds(secondsSum);
-      } catch (error) {
-        console.error("Failed to fetch user/exercise logs:", error);
-        setTodaySteps(null);
-        setTodayExerciseSeconds(null);
-      }
-    };
-    fetchUserAndCompute();
-  }, [userId]);
 
   if (!pet) {
     return (
@@ -66,6 +35,9 @@ const Status = () => {
   }
 
   const currentLevelStrength = pet.strength % 120;
+  // 直接從 pet 取得今日運動數據
+  const todaySteps = pet.daily_steps || 0;
+  const todayExerciseSeconds = pet.daily_exercise_seconds || 0;
 
   return (
     <div className="min-h-screen p-4" style={{ backgroundColor: 'var(--tp-primary-50)' }}>
