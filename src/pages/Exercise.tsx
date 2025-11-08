@@ -1,102 +1,138 @@
-import { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Play, Square } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-const Exercise = () => {
+const Exercise: React.FC = () => {
   const navigate = useNavigate();
+
   const [isExercising, setIsExercising] = useState(false);
+  const isExercisingRef = useRef(false);
+
   const [duration, setDuration] = useState(0);
+  const durationIntervalRef = useRef<number | null>(null);
+
   const [steps, setSteps] = useState(0);
-  const [lastAcceleration, setLastAcceleration] = useState({ x: 0, y: 0, z: 0 });
-  const [stepThreshold] = useState(15); // 摇晃阈值
+
+  // useRef for last magnitude and last step time to avoid stale closure
+  const lastMagRef = useRef<number>(0);
+  const lastStepTimeRef = useRef<number>(0);
+
+  // handler ref so we can remove listener later
+  const motionHandlerRef = useRef<(e: DeviceMotionEvent) => void | null>(null);
+
+  // Configurable parameters
+  const stepThresholdRef = useRef<number>(1.2); // adjust between ~0.8 - 2.5 based on device & movement
+  const minStepInterval = 300; // ms, 防止重複計步
+
+  // Optional debug flag
+  const DEBUG = false;
 
   const startExercise = () => {
     setIsExercising(true);
+    isExercisingRef.current = true;
+
     setDuration(0);
     setSteps(0);
+    lastMagRef.current = 0;
+    lastStepTimeRef.current = 0;
+
     toast.success("運動開始！保持節奏~");
 
-    // 计时器 - 每秒更新运动时长
-    const durationInterval = setInterval(() => {
+    // 開始時間計時器
+    if (durationIntervalRef.current) {
+      window.clearInterval(durationIntervalRef.current);
+    }
+    durationIntervalRef.current = window.setInterval(() => {
       setDuration((prev) => prev + 1);
     }, 1000);
 
-    // 请求加速度传感器权限（iOS 13+需要）
-    if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
-      (DeviceMotionEvent as any).requestPermission()
+    // iOS 需要 requestPermission（必須在 user gesture 才能成功）
+    if (typeof (DeviceMotionEvent as any).requestPermission === "function") {
+      (DeviceMotionEvent as any)
+        .requestPermission()
         .then((permissionState: string) => {
-          if (permissionState === 'granted') {
+          if (permissionState === "granted") {
             setupMotionDetection();
           } else {
-            toast.error('需要动作传感器权限才能侦测步数');
+            toast.error("需要動作傳感器權限才能偵測步數");
           }
         })
-        .catch(() => {
-          toast.error('无法获取传感器权限');
+        .catch((err: any) => {
+          console.error("requestPermission error:", err);
+          toast.error("無法取得傳感器權限");
         });
     } else {
-      // 非iOS或旧版浏览器直接启用
+      // 非 iOS 或舊版直接啟用
       setupMotionDetection();
     }
-
-    // 保存interval ID以便清理
-    (window as any).exerciseDurationInterval = durationInterval;
   };
 
   const setupMotionDetection = () => {
-    let lastStepTime = Date.now();
-    const minStepInterval = 200; // 最小步数间隔（毫秒），防止重复计数
+    lastMagRef.current = 0;
+    lastStepTimeRef.current = 0;
 
     const handleMotion = (event: DeviceMotionEvent) => {
-      if (!isExercising) return;
+      if (!isExercisingRef.current) return;
 
-      const acceleration = event.accelerationIncludingGravity;
-      if (!acceleration || acceleration.x === null || acceleration.y === null || acceleration.z === null) {
-        return;
+      // 優先使用不含重力的加速度（若可用），否則退回包含重力
+      const a = event.acceleration ?? event.accelerationIncludingGravity;
+      if (!a) return;
+
+      const ax = a.x ?? 0;
+      const ay = a.y ?? 0;
+      const az = a.z ?? 0;
+
+      // 速度向量大小
+      const mag = Math.sqrt(ax * ax + ay * ay + az * az);
+
+      // 第一次進來時 lastMag 可能為 0，直接設成 mag 並 return（避免一開始就計步）
+      const last = lastMagRef.current || mag;
+      const delta = Math.abs(mag - last);
+
+      if (DEBUG) {
+        // eslint-disable-next-line no-console
+        console.debug("acc:", { ax, ay, az, mag, delta });
       }
 
-      // 计算加速度变化量（摇晃强度）
-      const deltaX = Math.abs(acceleration.x - lastAcceleration.x);
-      const deltaY = Math.abs(acceleration.y - lastAcceleration.y);
-      const deltaZ = Math.abs(acceleration.z - lastAcceleration.z);
+      lastMagRef.current = mag;
 
-      const totalDelta = deltaX + deltaY + deltaZ;
-
-      // 更新上次加速度值
-      setLastAcceleration({
-        x: acceleration.x,
-        y: acceleration.y,
-        z: acceleration.z
-      });
-
-      // 如果摇晃强度超过阈值，且距离上次计步时间足够长，则计为一步
       const now = Date.now();
-      if (totalDelta > stepThreshold && now - lastStepTime > minStepInterval) {
+      if (delta > stepThresholdRef.current && now - lastStepTimeRef.current > minStepInterval) {
         setSteps((prev) => prev + 1);
-        lastStepTime = now;
+        lastStepTimeRef.current = now;
+        if (DEBUG) {
+          // eslint-disable-next-line no-console
+          console.debug("step detected. delta:", delta);
+        }
       }
     };
 
-    window.addEventListener('devicemotion', handleMotion);
-    (window as any).exerciseMotionHandler = handleMotion;
+    // 保存 reference 以便 later removeEventListener
+    motionHandlerRef.current = handleMotion;
+    // 使用 capture true 在某些瀏覽器上可改善事件接收，視情況可移除第三個參數
+    window.addEventListener("devicemotion", handleMotion);
   };
 
   const stopExercise = () => {
     setIsExercising(false);
+    isExercisingRef.current = false;
 
-    // 清理计时器
-    clearInterval((window as any).exerciseDurationInterval);
-
-    // 移除动作监听器
-    if ((window as any).exerciseMotionHandler) {
-      window.removeEventListener('devicemotion', (window as any).exerciseMotionHandler);
-      (window as any).exerciseMotionHandler = null;
+    // 清理計時器
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+      durationIntervalRef.current = null;
     }
 
-    // 计算奖励
+    // 移除動作監聽器
+    if (motionHandlerRef.current) {
+      window.removeEventListener("devicemotion", motionHandlerRef.current);
+      motionHandlerRef.current = null;
+    }
+
+    // 計算獎勵
     const stamina = Math.floor(duration / 10);
     const satiety = Math.floor(steps / 20);
     const mood = Math.floor(duration / 15);
@@ -104,14 +140,23 @@ const Exercise = () => {
     toast.success(`運動完成！獲得：體力+${stamina} 飽食度+${satiety} 心情+${mood}`);
   };
 
+  // 若元件 unmount，要確保清理
+  useEffect(() => {
+    return () => {
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+      if (motionHandlerRef.current) {
+        window.removeEventListener("devicemotion", motionHandlerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="min-h-screen bg-game-bg p-4">
       <div className="max-w-md mx-auto space-y-4">
-        <Button
-          variant="ghost"
-          onClick={() => navigate("/")}
-          className="mb-4"
-        >
+        <Button variant="ghost" onClick={() => navigate("/")} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           返回
         </Button>
@@ -138,7 +183,7 @@ const Exercise = () => {
                 <li>• 早上6-10點運動有 +15% 加成（早雞）</li>
                 <li>• 雨天戶外運動額外獎勵（雨天不退）</li>
                 <li>• 持續運動提升手雞各項數值</li>
-                <li>• 搖晃手機即可自動侦測步数</li>
+                <li>• 搖晃手機即可自動偵測步數（請在實機上測試）</li>
               </ul>
             </div>
           </div>
@@ -165,7 +210,7 @@ const Exercise = () => {
 
         <Card className="p-4 bg-accent/10 border-accent">
           <p className="text-sm text-center text-accent-foreground">
-            💡 使用手机加速度传感器实时侦测您的运动步数！
+            💡 使用手機加速度傳感器實時偵測您的運動步數！（僅支援實機、HTTPS / localhost）
           </p>
         </Card>
       </div>
