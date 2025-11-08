@@ -1,14 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, MapPin, Trophy, Navigation, Map, Route, Code } from "lucide-react";
+import { ArrowLeft, MapPin, Trophy, Navigation, Map, Code, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import TPButton from "@/components/TPButton/TPButton";
 import MapView from "@/components/MapView";
 import { QuestLocation } from "@/types/quest";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { useInView } from "react-intersection-observer";
 
 const initialQuests: QuestLocation[] = [
   { 
@@ -105,18 +107,22 @@ const Travel = () => {
   const navigate = useNavigate();
   const [quests, setQuests] = useState<QuestLocation[]>(initialQuests);
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
-  const [activeRoute, setActiveRoute] = useState<QuestLocation | null>(null);
   const [devMode, setDevMode] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [displayedCount, setDisplayedCount] = useState(10);
+  const [flyToQuest, setFlyToQuest] = useState<QuestLocation | null>(null);
+  
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+  });
 
   const handleAcceptQuest = (quest: QuestLocation) => {
     setQuests(prev => prev.map(q => 
       q.id === quest.id ? { ...q, status: "in-progress" as const } : q
     ));
     toast.success(`已接受任務：${quest.name}`, {
-      description: "可以開始導航囉！"
+      description: "請前往目的地完成打卡！"
     });
-    // 自動開始導航
-    handleStartRouting(quest);
   };
 
   const handleCompleteQuest = (quest: QuestLocation) => {
@@ -129,20 +135,45 @@ const Travel = () => {
       description: `獲得獎勵：${bonusText}`
     });
     
-    // 如果完成的是正在導航的任務，則清除路線
-    if (activeRoute?.id === quest.id) {
-      setActiveRoute(null);
-    }
-    
     // 這裡可以更新實際的寵物屬性
     // updatePetStats(quest.bonus);
   };
 
-  const handleStartRouting = (quest: QuestLocation) => {
-    setActiveRoute(quest);
-    setViewMode("map");
-    toast.info(`開始導航至：${quest.name}`);
-  };
+  // 篩選任務
+  const filteredQuests = useMemo(() => {
+    if (!searchTerm) return quests;
+    return quests.filter(quest => 
+      quest.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      quest.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      quest.category.includes(searchTerm)
+    );
+  }, [quests, searchTerm]);
+
+  const availableQuests = useMemo(() => 
+    filteredQuests.filter(q => q.status === "available"),
+    [filteredQuests]
+  );
+  
+  const inProgressQuests = useMemo(() => 
+    filteredQuests.filter(q => q.status === "in-progress"),
+    [filteredQuests]
+  );
+  
+  const completedQuests = useMemo(() => 
+    filteredQuests.filter(q => q.status === "completed"),
+    [filteredQuests]
+  );
+
+  // 當使用者滾動到底部時，載入更多
+  useEffect(() => {
+    if (inView && displayedCount < availableQuests.length) {
+      // 使用 setTimeout 來避免快速觸發
+      const timer = setTimeout(() => {
+        setDisplayedCount(prev => Math.min(prev + 10, availableQuests.length));
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [inView, displayedCount, availableQuests.length]);
 
   const getBonusText = (bonus: { strength?: number; mood?: number }) => {
     const parts = [];
@@ -151,9 +182,10 @@ const Travel = () => {
     return parts.join(', ');
   };
 
-  const availableQuests = quests.filter(q => q.status === "available");
-  const inProgressQuests = quests.filter(q => q.status === "in-progress");
-  const completedQuests = quests.filter(q => q.status === "completed");
+  const handleQuestClick = (quest: QuestLocation) => {
+    setFlyToQuest(quest);
+    setViewMode("map");
+  };
 
   return (
     <div className="min-h-screen p-4" style={{ backgroundColor: 'var(--tp-primary-50)' }}>
@@ -241,18 +273,44 @@ const Travel = () => {
         {/* 地圖視圖 */}
         {viewMode === "map" && (
           <MapView
-            quests={quests}
+            quests={filteredQuests}
             onAcceptQuest={handleAcceptQuest}
             onCompleteQuest={handleCompleteQuest}
-            activeRoute={activeRoute}
-            onStartRouting={handleStartRouting}
             devMode={devMode}
+            flyToQuest={flyToQuest}
+            onFlyComplete={() => setFlyToQuest(null)}
           />
         )}
 
         {/* 列表視圖 */}
         {viewMode === "list" && (
           <div className="space-y-4">
+            {/* 搜尋框 */}
+            <Card className="p-4" style={{ backgroundColor: 'var(--tp-white)' }}>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5" style={{ color: 'var(--tp-grayscale-400)' }} />
+                <Input
+                  type="text"
+                  placeholder="搜尋地點名稱、類別或描述..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setDisplayedCount(10); // 重置顯示數量
+                  }}
+                  className="pl-10 tp-body-regular"
+                  style={{ 
+                    borderColor: 'var(--tp-primary-300)',
+                    backgroundColor: 'var(--tp-grayscale-50)'
+                  }}
+                />
+              </div>
+              {searchTerm && (
+                <p className="tp-caption mt-2" style={{ color: 'var(--tp-grayscale-600)' }}>
+                  找到 {filteredQuests.length} 個符合的地點
+                </p>
+              )}
+            </Card>
+
             {/* 進行中的任務 */}
             {inProgressQuests.length > 0 && (
               <Card className="p-6 space-y-4" style={{ backgroundColor: 'var(--tp-white)', borderColor: 'var(--tp-warning-300)' }}>
@@ -299,10 +357,10 @@ const Travel = () => {
                       <TPButton 
                         variant="primary" 
                         className="w-full"
-                        onClick={() => handleStartRouting(quest)}
+                        onClick={() => handleQuestClick(quest)}
                       >
-                        <Route className="w-4 h-4 mr-2" />
-                        開始導航
+                        <Map className="w-4 h-4 mr-2" />
+                        在地圖上查看
                       </TPButton>
                     </div>
                   ))}
@@ -313,10 +371,10 @@ const Travel = () => {
             {/* 可接的任務 */}
             <Card className="p-6 space-y-4" style={{ backgroundColor: 'var(--tp-white)', borderColor: 'var(--tp-primary-200)' }}>
               <h3 className="tp-h3-semibold" style={{ color: 'var(--tp-grayscale-800)' }}>
-                台北運動景點
+                {searchTerm ? '搜尋結果' : '台北運動景點'}
               </h3>
               <div className="space-y-2">
-                {availableQuests.map((quest) => (
+                {availableQuests.slice(0, displayedCount).map((quest) => (
                   <div
                     key={quest.id}
                     className="rounded-lg p-3 cursor-pointer transition-all hover:shadow-md"
@@ -324,7 +382,7 @@ const Travel = () => {
                       backgroundColor: 'var(--tp-grayscale-50)',
                       borderLeft: `4px solid ${quest.category === '運動場館' ? 'var(--tp-secondary-500)' : 'var(--tp-primary-500)'}`
                     }}
-                    onClick={() => setViewMode("map")}
+                    onClick={() => handleQuestClick(quest)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
@@ -356,6 +414,23 @@ const Travel = () => {
                     </div>
                   </div>
                 ))}
+                
+                {/* 無限滾動載入觸發點 */}
+                {displayedCount < availableQuests.length && (
+                  <div ref={loadMoreRef} className="py-4 text-center">
+                    <div className="inline-flex items-center gap-2 tp-body-regular" style={{ color: 'var(--tp-grayscale-600)' }}>
+                      <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--tp-primary-500)', borderTopColor: 'transparent' }}></div>
+                      載入更多...
+                    </div>
+                  </div>
+                )}
+                
+                {/* 已載入全部 */}
+                {displayedCount >= availableQuests.length && availableQuests.length > 0 && (
+                  <div className="py-4 text-center tp-caption" style={{ color: 'var(--tp-grayscale-500)' }}>
+                    已顯示全部 {availableQuests.length} 個地點
+                  </div>
+                )}
               </div>
             </Card>
 

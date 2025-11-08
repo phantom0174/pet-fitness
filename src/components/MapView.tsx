@@ -3,10 +3,9 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-le
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { QuestLocation, UserLocation } from '@/types/quest';
-import { Navigation, MapPin, Trophy, CheckCircle2, Route } from 'lucide-react';
+import { Navigation, MapPin, Trophy, CheckCircle2 } from 'lucide-react';
 import TPButton from './TPButton/TPButton';
 import { Card } from './ui/card';
-import RoutingMachine from './RoutingMachine';
 
 // 修復 Leaflet 預設圖標問題
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -47,39 +46,87 @@ const createQuestIcon = (status: QuestLocation['status'], category: string) => {
   });
 };
 
-// 自動居中到用戶位置的組件
-function RecenterMap({ userLocation }: { userLocation: UserLocation | null }) {
+// 飛到指定位置的組件
+function FlyToLocation({ target, onComplete }: { target: [number, number] | null; onComplete: () => void }) {
   const map = useMap();
   
   useEffect(() => {
-    if (userLocation) {
-      map.setView([userLocation.lat, userLocation.lng], 13);
+    if (target) {
+      map.flyTo(target, 15, { duration: 1.5 });
+      // 動畫完成後清除目標
+      const timer = setTimeout(onComplete, 1500);
+      return () => clearTimeout(timer);
     }
-  }, [userLocation, map]);
+  }, [target, map, onComplete]);
   
   return null;
+}
+
+// 回到我的位置按鈕組件
+function LocationButton({ userLocation, hasRealLocation }: { userLocation: UserLocation; hasRealLocation: boolean }) {
+  const map = useMap();
+  
+  const handleClick = () => {
+    if (hasRealLocation) {
+      map.flyTo([userLocation.lat, userLocation.lng], 14, { duration: 1.5 });
+    }
+  };
+  
+  return (
+    <div 
+      className="leaflet-top leaflet-right" 
+      style={{ 
+        position: 'absolute', 
+        top: '10px', 
+        right: '10px', 
+        zIndex: 1000,
+        pointerEvents: 'none'
+      }}
+    >
+      <div style={{ pointerEvents: 'auto' }}>
+        <button
+          onClick={handleClick}
+          disabled={!hasRealLocation}
+          className="rounded-lg shadow-lg p-3 transition-all hover:shadow-xl disabled:opacity-50"
+          style={{
+            backgroundColor: 'var(--tp-white)',
+            border: '2px solid var(--tp-primary-500)',
+            cursor: hasRealLocation ? 'pointer' : 'not-allowed'
+          }}
+          title="回到我的位置"
+        >
+          <Navigation 
+            className="w-5 h-5" 
+            style={{ color: hasRealLocation ? 'var(--tp-primary-600)' : 'var(--tp-grayscale-400)' }}
+          />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface MapViewProps {
   quests: QuestLocation[];
   onAcceptQuest: (quest: QuestLocation) => void;
   onCompleteQuest: (quest: QuestLocation) => void;
-  activeRoute: QuestLocation | null;
-  onStartRouting: (quest: QuestLocation) => void;
   devMode: boolean;
+  flyToQuest?: QuestLocation | null;
+  onFlyComplete?: () => void;
 }
 
-export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, activeRoute, onStartRouting, devMode }: MapViewProps) => {
-  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, devMode, flyToQuest, onFlyComplete }: MapViewProps) => {
+  // 預設使用台北市中心，不等待 GPS
+  const [userLocation, setUserLocation] = useState<UserLocation>({ lat: 25.0330, lng: 121.5654 });
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedQuest, setSelectedQuest] = useState<QuestLocation | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [hasRealLocation, setHasRealLocation] = useState(false);
+  const [showLocationButton, setShowLocationButton] = useState(false);
 
-  // 獲取用戶位置
+  // 獲取用戶位置（背景執行，不阻塞地圖顯示）
   useEffect(() => {
     if (!navigator.geolocation) {
-      setLocationError('您的瀏覽器不支援地理定位');
-      // 預設台北市中心
-      setUserLocation({ lat: 25.0330, lng: 121.5654 });
+      setLocationError('您的瀏覽器不支援地理定位，顯示台北市中心');
       return;
     }
 
@@ -90,18 +137,17 @@ export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, activeRoute, o
           lng: position.coords.longitude,
           accuracy: position.coords.accuracy,
         });
+        setHasRealLocation(true);
         setLocationError(null);
       },
       (error) => {
         console.error('定位錯誤:', error);
-        setLocationError('無法取得您的位置，顯示預設地圖');
-        // 預設台北市中心
-        setUserLocation({ lat: 25.0330, lng: 121.5654 });
+        setLocationError('無法取得您的位置，顯示台北市中心');
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
+        enableHighAccuracy: false, // 改為 false 以加快首次定位
+        timeout: 5000, // 縮短超時時間
+        maximumAge: 30000, // 允許使用 30 秒內的快取位置
       }
     );
 
@@ -144,24 +190,6 @@ export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, activeRoute, o
     return parts.join(', ');
   };
 
-  if (!userLocation) {
-    return (
-      <div className="flex items-center justify-center h-96 bg-gray-100 rounded-lg">
-        <div className="text-center space-y-2">
-          <Navigation className="w-12 h-12 mx-auto animate-pulse" style={{ color: 'var(--tp-primary-500)' }} />
-          <p className="tp-body-regular" style={{ color: 'var(--tp-grayscale-600)' }}>
-            正在獲取您的位置...
-          </p>
-          {locationError && (
-            <p className="tp-caption" style={{ color: 'var(--tp-error-500)' }}>
-              {locationError}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {locationError && (
@@ -171,54 +199,93 @@ export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, activeRoute, o
           </p>
         </Card>
       )}
+      
+      {!hasRealLocation && !locationError && (
+        <Card className="p-3" style={{ backgroundColor: 'var(--tp-info-50)', borderColor: 'var(--tp-info-300)' }}>
+          <p className="tp-caption" style={{ color: 'var(--tp-info-700)' }}>
+            📍 正在取得您的精確位置...
+          </p>
+        </Card>
+      )}
 
-      <div className="rounded-lg overflow-hidden shadow-lg" style={{ height: '500px' }}>
+      <div className="rounded-lg overflow-hidden shadow-lg relative" style={{ height: '500px' }}>
+        {!mapLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center z-50" 
+               style={{ backgroundColor: 'var(--tp-grayscale-100)' }}>
+            <div className="text-center space-y-3">
+              <div className="w-16 h-16 mx-auto rounded-full border-4 border-t-transparent animate-spin" 
+                   style={{ borderColor: 'var(--tp-primary-500)', borderTopColor: 'transparent' }}>
+              </div>
+              <p className="tp-body-semibold" style={{ color: 'var(--tp-grayscale-700)' }}>
+                地圖載入中...
+              </p>
+            </div>
+          </div>
+        )}
         <MapContainer
-          center={[userLocation.lat, userLocation.lng]}
-          zoom={13}
+          center={[25.0330, 121.5654]} // 固定台北市中心
+          zoom={12} // 適合台北市區的縮放等級
           style={{ height: '100%', width: '100%' }}
           zoomControl={true}
+          whenReady={() => setMapLoaded(true)}
+          maxBounds={[
+            [24.9, 121.3], // 西南角
+            [25.3, 121.8]  // 東北角
+          ]} // 限制地圖範圍在台北市周邊
+          minZoom={11} // 最小縮放等級
+          maxZoom={18} // 最大縮放等級
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            eventHandlers={{
+              load: () => setMapLoaded(true)
+            }}
           />
           
-          <RecenterMap userLocation={userLocation} />
+          {/* 飛到指定地點 */}
+          <FlyToLocation 
+            target={flyToQuest ? [flyToQuest.lat, flyToQuest.lng] : null} 
+            onComplete={() => onFlyComplete?.()} 
+          />
+          
+          {/* 回到我的位置按鈕 */}
+          <LocationButton userLocation={userLocation} hasRealLocation={hasRealLocation} />
 
-          {/* 顯示導航路線 */}
-          {activeRoute && userLocation && (
-            <RoutingMachine start={userLocation} end={activeRoute} />
+          {/* 用戶位置標記 - 只在有真實位置時顯示 */}
+          {hasRealLocation && (
+            <>
+              <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
+                <Popup>
+                  <div className="text-center">
+                    <p className="tp-body-semibold mb-1" style={{ color: 'var(--tp-primary-700)' }}>
+                      您的位置
+                    </p>
+                    {userLocation.accuracy && (
+                      <p className="tp-caption" style={{ color: 'var(--tp-grayscale-600)' }}>
+                        精確度: ±{Math.round(userLocation.accuracy)}m
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+
+              {/* 用戶位置精確度圓圈 */}
+              {userLocation.accuracy && (
+                <Circle
+                  center={[userLocation.lat, userLocation.lng]}
+                  radius={userLocation.accuracy}
+                  pathOptions={{
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.1,
+                  }}
+                />
+              )}
+            </>
           )}
 
-          {/* 用戶位置標記 */}
-          <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
-            <Popup>
-              <div className="text-center">
-                <p className="tp-body-semibold mb-1" style={{ color: 'var(--tp-primary-700)' }}>
-                  您的位置
-                </p>
-                {userLocation.accuracy && (
-                  <p className="tp-caption" style={{ color: 'var(--tp-grayscale-600)' }}>
-                    精確度: ±{Math.round(userLocation.accuracy)}m
-                  </p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
 
-          {/* 用戶位置精確度圓圈 */}
-          {userLocation.accuracy && (
-            <Circle
-              center={[userLocation.lat, userLocation.lng]}
-              radius={userLocation.accuracy}
-              pathOptions={{
-                color: '#3b82f6',
-                fillColor: '#3b82f6',
-                fillOpacity: 0.1,
-              }}
-            />
-          )}
 
           {/* 任務地點標記 */}
           {quests.map((quest) => {
@@ -292,25 +359,15 @@ export const MapView = ({ quests, onAcceptQuest, onCompleteQuest, activeRoute, o
                       )}
                       
                       {quest.status === 'in-progress' && (
-                        <div className="flex gap-2">
-                          <TPButton
-                            variant="primary"
-                            className="flex-1"
-                            onClick={() => onStartRouting(quest)}
-                          >
-                            <Route className="w-4 h-4 mr-2" />
-                            導航
-                          </TPButton>
-                          <TPButton
-                            variant="secondary"
-                            className="flex-1"
-                            disabled={!inRange}
-                            onClick={() => onCompleteQuest(quest)}
-                          >
-                            <CheckCircle2 className="w-4 h-4 mr-2" />
-                            打卡
-                          </TPButton>
-                        </div>
+                        <TPButton
+                          variant="secondary"
+                          className="w-full"
+                          disabled={!inRange}
+                          onClick={() => onCompleteQuest(quest)}
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-2" />
+                          完成打卡
+                        </TPButton>
                       )}
                       
                       {quest.status === 'completed' && (
