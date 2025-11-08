@@ -14,11 +14,30 @@ const Welcome = () => {
     const { toast } = useToast();
     const [petName, setPetName] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [renderError, setRenderError] = useState<string | null>(null);
+    const [pageLoaded, setPageLoaded] = useState(false);
 
-    // TownPass authentication
-    const { requestTownPassUser, user: townpassUser, isLoading: isTownPassLoading } = useTownPassAuth({
-        debug: true
-    });
+    // Show that page started loading
+    useEffect(() => {
+        console.log("Welcome page mounted");
+        setPageLoaded(true);
+    }, []);
+
+    // TownPass authentication - with error handling
+    let townpassUser = null;
+    let isTownPassLoading = false;
+    let requestTownPassUser = () => { };
+
+    try {
+        const auth = useTownPassAuth({ debug: true });
+        townpassUser = auth.user;
+        isTownPassLoading = auth.isLoading;
+        requestTownPassUser = auth.requestTownPassUser;
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        setRenderError(`TownPass Hook Error: ${errorMsg}`);
+        console.error("useTownPassAuth error:", error);
+    }
 
     // Request TownPass user on component mount
     useEffect(() => {
@@ -74,6 +93,11 @@ const Welcome = () => {
             className="min-h-screen flex items-center justify-center p-4"
             style={{ backgroundColor: 'var(--tp-primary-50)' }}
         >
+            {/* Page Load Status - always visible */}
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: pageLoaded ? '#4ade80' : '#f87171', color: 'white', padding: '4px', textAlign: 'center', fontSize: '12px', zIndex: 9999 }}>
+                {pageLoaded ? '✓ Page Loaded' : '⏳ Loading...'}
+            </div>
+
             <Card
                 className="w-full max-w-md p-8 space-y-6"
                 style={{ backgroundColor: 'var(--tp-white)', borderColor: 'var(--tp-primary-200)' }}
@@ -89,6 +113,18 @@ const Welcome = () => {
                 </div>
 
                 <div className="space-y-4">
+                    {/* Render Error Display */}
+                    {renderError && (
+                        <div className="text-left p-3 rounded-lg" style={{ backgroundColor: 'var(--tp-error-50)', borderColor: 'var(--tp-error-300)', borderWidth: '2px' }}>
+                            <p className="tp-body-semibold mb-2" style={{ color: 'var(--tp-error-700)' }}>
+                                ❌ Render Error:
+                            </p>
+                            <pre className="text-xs font-mono whitespace-pre-wrap" style={{ color: 'var(--tp-error-600)' }}>
+                                {renderError}
+                            </pre>
+                        </div>
+                    )}
+
                     {/* Debug Info */}
                     <div className="text-left p-3 rounded-lg" style={{ backgroundColor: 'var(--tp-grayscale-100)', borderColor: 'var(--tp-grayscale-300)', borderWidth: '1px' }}>
                         <p className="tp-body-semibold mb-2" style={{ color: 'var(--tp-grayscale-700)' }}>
@@ -105,7 +141,7 @@ const Welcome = () => {
                             <p>ReactNative: {(window as any).ReactNativeWebView ? 'Yes' : 'No'}</p>
                             <p>Window keys with 'town': {Object.keys(window).filter(k => k.toLowerCase().includes('town')).join(', ') || 'None'}</p>
                             <p>Window keys with 'flutter': {Object.keys(window).filter(k => k.toLowerCase().includes('flutter')).join(', ') || 'None'}</p>
-                        </div>  
+                        </div>
                         <Button
                             onClick={() => {
                                 requestTownPassUser();
