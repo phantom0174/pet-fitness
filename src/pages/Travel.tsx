@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, MapPin, Trophy, Navigation, Map, Code, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import TPButton from "@/components/TPButton/TPButton";
 import MapView from "@/components/MapView";
 import { QuestLocation } from "@/types/quest";
@@ -117,11 +117,15 @@ const Travel = () => {
   });
 
   const handleAcceptQuest = (quest: QuestLocation) => {
-    setQuests(prev => prev.map(q => 
-      q.id === quest.id ? { ...q, status: "in-progress" as const } : q
-    ));
+    // 直接將選中的任務設為進行中，不影響其他任務
+    setQuests(prev => prev.map(q => {
+      if (q.id === quest.id) {
+        return { ...q, status: "in-progress" as const };
+      }
+      return q;
+    }));
     toast.success(`已接受任務：${quest.name}`, {
-      description: "請前往目的地完成打卡！"
+      description: "請前往目的地完成打卡！可同時接受多個任務。"
     });
   };
 
@@ -182,10 +186,21 @@ const Travel = () => {
     return parts.join(', ');
   };
 
-  const handleQuestClick = (quest: QuestLocation) => {
+  const handleQuestClick = useCallback((quest: QuestLocation) => {
     setFlyToQuest(quest);
     setViewMode("map");
-  };
+  }, []);
+
+  const handleFlyComplete = useCallback(() => {
+    setFlyToQuest(null);
+  }, []);
+
+  // 當從地圖模式切換到列表模式時，清除 flyToQuest
+  useEffect(() => {
+    if (viewMode === "list") {
+      setFlyToQuest(null);
+    }
+  }, [viewMode]);
 
   return (
     <div className="min-h-screen p-4" style={{ backgroundColor: 'var(--tp-primary-50)' }}>
@@ -278,7 +293,8 @@ const Travel = () => {
             onCompleteQuest={handleCompleteQuest}
             devMode={devMode}
             flyToQuest={flyToQuest}
-            onFlyComplete={() => setFlyToQuest(null)}
+            onFlyComplete={handleFlyComplete}
+            activeQuestId={inProgressQuests[0]?.id} // 顯示第一個進行中任務的路線
           />
         )}
 
