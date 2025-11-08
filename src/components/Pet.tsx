@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import bg from "@/assets/image/background.png";
+import badDayBg from "@/assets/image/badday_backgroung.png";
+import { useManualRain } from "@/hooks/useWeather";
 import PetEggSvg from "@/assets/svg/pet-egg.svg";
 import PetSmallSvg from "@/assets/svg/pet-small.svg";
 import PetMediumSvg from "@/assets/svg/pet-medium.svg";
@@ -150,6 +152,8 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [bubbleHeight, setBubbleHeight] = useState<number>(0);
   const [bubbleWidth, setBubbleWidth] = useState<number>(200);
+
+  const { manualRain } = useManualRain();
 
   // measure bubble height so we can position it exactly above the pet
   useEffect(() => {
@@ -629,7 +633,7 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
       className="relative rounded-2xl shadow-inner overflow-hidden w-full"
       style={{
         aspectRatio: "1 / 1",
-        backgroundImage: `url(${bg})`,
+        backgroundImage: `url(${manualRain ? badDayBg : bg})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundRepeat: "no-repeat",
