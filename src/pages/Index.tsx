@@ -22,12 +22,14 @@ import {
 import { Input } from "@/components/ui/input";
 import TPButton from "@/components/TPButton/TPButton";
 import { useUser } from "@/hooks/useUser";
+import { useManualRain } from "@/hooks/useWeather";
 import { updateUserPet, performDailyCheck, getStageName as getAPIStageNameFunc } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
   const navigate = useNavigate();
   const { userId, pet, refreshPet, isLoading } = useUser();
+  const { manualRain } = useManualRain();
   const { toast } = useToast();
   const [editingName, setEditingName] = useState("");
   const [namePopoverOpen, setNamePopoverOpen] = useState(false);
@@ -35,12 +37,9 @@ const Index = () => {
   const [hasCheckedDaily, setHasCheckedDaily] = useState(false);
   const [entranceStage, setEntranceStage] = useState<'egg' | 'hatching' | 'done'>('egg');
   const [typedText, setTypedText] = useState("");
-  
-  // Rain effect state
-  const [isRaining, setIsRaining] = useState<boolean>(() => {
-    const saved = localStorage.getItem("isRaining");
-    return saved === "true";
-  });
+
+  // Rain effect - 使用全局的 manualRain 狀態
+  const isRaining = manualRain;
 
   // Perform daily check when component mounts
   useEffect(() => {
@@ -83,24 +82,7 @@ const Index = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Listen for rain state changes from localStorage
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("isRaining");
-      setIsRaining(saved === "true");
-    };
-
-    // Listen for storage changes from other tabs/windows
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also check for changes when returning to this page
-    const interval = setInterval(handleStorageChange, 1000);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
+  // Rain effect 現在使用全局 useManualRain hook，不需要 localStorage listener
 
   const getStageName = (stage: number) => {
     const stageNames: Record<number, string> = {
@@ -194,7 +176,7 @@ const Index = () => {
   // Rain animation component
   const RainAnimation = () => {
     if (!isRaining) return null;
-    
+
     return (
       <div className="fixed inset-0 pointer-events-none z-10 overflow-hidden">
         <style>{`
@@ -288,7 +270,7 @@ const Index = () => {
           {/* Header */}
           <header
             className="h-16 flex items-center px-4 border-b"
-            style={{ 
+            style={{
               backgroundColor: '#EDF8FA',
               borderColor: 'var(--tp-primary-200)'
             }}
@@ -359,7 +341,7 @@ const Index = () => {
 
           <main className="flex-1 p-4 overflow-auto">
             <div className="max-w-md mx-auto space-y-4">
-                            {/* Stats */}
+              {/* Stats */}
               <Card className="p-6 space-y-4" style={{ backgroundColor: 'var(--tp-white)', borderColor: 'var(--tp-primary-200)' }}>
                 <StatBar
                   label="力量值"
