@@ -6,6 +6,9 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 type Activity = "idle" | "walking" | "jumping" | "unknown";
+type CalibLabel = "walking" | "jumping";
+
+const LOCAL_KEY = "exercise_params_v1";
 
 const Exercise: React.FC = () => {
   const navigate = useNavigate();
@@ -28,30 +31,36 @@ const Exercise: React.FC = () => {
   // handler ref so we can remove listener later
   const motionHandlerRef = useRef<(e: DeviceMotionEvent) => void | null>(null);
 
-  // Configurable parameters for basic step detection (defaults)
-  const [stepThreshold, setStepThreshold] = useState<number>(3);
-  const minStepInterval = 500; // ms, 防止重複計步
+  // Configurable parameters for basic step detection (defaults adjusted)
+  const [stepThreshold, setStepThreshold] = useState<number>(1.2); // lower, since we use linear acc
+  const minStepInterval = 400; // ms, 防止重複計步
 
   // Parameters for activity classification (UI-controllable)
-  const [windowSizeMs, setWindowSizeMs] = useState<number>(2500);
-  const [featureComputeIntervalMs, setFeatureComputeIntervalMs] = useState<number>(800);
+  const [windowSizeMs, setWindowSizeMs] = useState<number>(2000);
+  const [featureComputeIntervalMs, setFeatureComputeIntervalMs] = useState<number>(600);
 
   // peak detection thresholds (可在實機上調整)
-  const [magPeakThreshold, setMagPeakThreshold] = useState<number>(2.5);
-  const [jumpAmpThreshold, setJumpAmpThreshold] = useState<number>(9);
-  const [verticalPeakRatioForJump, setVerticalPeakRatioForJump] = useState<number>(0.6);
-  const [cadenceWalkingMin, setCadenceWalkingMin] = useState<number>(1.0); // Hz
-  const [cadenceWalkingMax, setCadenceWalkingMax] = useState<number>(3.0); // Hz
+  const [magPeakThreshold, setMagPeakThreshold] = useState<number>(1.0);
+  const [jumpAmpThreshold, setJumpAmpThreshold] = useState<number>(7); // 略降，以便手機差異
+  const [verticalPeakRatioForJump, setVerticalPeakRatioForJump] = useState<number>(0.5);
+  const [cadenceWalkingMin, setCadenceWalkingMin] = useState<number>(0.8); // Hz
+  const [cadenceWalkingMax, setCadenceWalkingMax] = useState<number>(2.5); // Hz
 
-  // buffer for sliding window
+  // buffer for sliding window (store linear accel mag)
   const samplesRef = useRef<
-    Array<{ t: number; ax: number; ay: number; az: number; mag: number }>
+    Array<{ t: number; lax: number; lay: number; laz: number; mag: number }>
   >([]);
+
+  // gravity estimate for simple high-pass (low-pass for gravity)
+  const gravityRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
+
+  // feature timer ref so we can clear properly
+  const featureTimerRef = useRef<number | null>(null);
 
   // Optional debug flag
   const [DEBUG, setDEBUG] = useState<boolean>(false);
 
-  // control panel: outdoor / rain / weather-auto
+  // control panel: outdoor / rain / weather-auto (kept)
   const [isOutdoor, setIsOutdoor] = useState<boolean>(false);
   const [manualRain, setManualRain] = useState<boolean>(false);
   const [autoDetectWeather, setAutoDetectWeather] = useState<boolean>(false);
@@ -65,6 +74,40 @@ const Exercise: React.FC = () => {
   // start time ref to decide morning overlap
   const startTimeRef = useRef<number | null>(null);
 
+  // calibration states & refs
+  const [calibrating, setCalibrating] = useState<boolean>(false);
+  const calibratingRef = useRef<boolean>(false);
+  const calibLabelRef = useRef<CalibLabel | null>(null);
+  const calibBufferRef = useRef<Array<{ t: number; lax: number; lay: number; laz: number; mag: number }>>([]);
+  const calibTimerRef = useRef<number | null>(null);
+  const [calibCountdown, setCalibCountdown] = useState<number>(0);
+  const [calibDuration, setCalibDuration] = useState<number>(8); // seconds per calibration run
+  const [lastCalibResult, setLastCalibResult] = useState<any>(null);
+  const [savedParams, setSavedParams] = useState<Record<string, any> | null>(null);
+
+  // simple helper: magnitude
+  const mag = (ax: number, ay: number, az: number) => Math.sqrt(ax * ax + ay * ay + az * az);
+
+  // load saved params on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setSavedParams(parsed);
+        // apply loaded params to UI (but don't overwrite if absent)
+        if (parsed?.stepThreshold) setStepThreshold(parsed.stepThreshold);
+        if (parsed?.magPeakThreshold) setMagPeakThreshold(parsed.magPeakThreshold);
+        if (parsed?.jumpAmpThreshold) setJumpAmpThreshold(parsed.jumpAmpThreshold);
+        if (parsed?.cadenceWalkingMin) setCadenceWalkingMin(parsed.cadenceWalkingMin);
+        if (parsed?.cadenceWalkingMax) setCadenceWalkingMax(parsed.cadenceWalkingMax);
+      }
+    } catch (err) {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const startExercise = () => {
     setIsExercising(true);
     isExercisingRef.current = true;
@@ -75,6 +118,7 @@ const Exercise: React.FC = () => {
     lastStepTimeRef.current = 0;
     setActivity("idle");
     samplesRef.current = [];
+    gravityRef.current = { x: 0, y: 0, z: 0 };
     startTimeRef.current = Date.now();
 
     toast.success("運動開始！保持節奏~");
@@ -123,6 +167,21 @@ const Exercise: React.FC = () => {
       durationIntervalRef.current = null;
     }
 
+    // 清理 feature timer
+    if (featureTimerRef.current) {
+      clearInterval(featureTimerRef.current);
+      featureTimerRef.current = null;
+    }
+
+    // 清理 calibration timer if any
+    if (calibTimerRef.current) {
+      clearInterval(calibTimerRef.current);
+      calibTimerRef.current = null;
+      setCalibCountdown(0);
+      calibratingRef.current = false;
+      setCalibrating(false);
+    }
+
     // 移除動作監聽器
     if (motionHandlerRef.current) {
       window.removeEventListener("devicemotion", motionHandlerRef.current);
@@ -159,8 +218,26 @@ const Exercise: React.FC = () => {
     );
   };
 
-  // helper: compute magnitude
-  const mag = (ax: number, ay: number, az: number) => Math.sqrt(ax * ax + ay * ay + az * az);
+  // count peaks naive: a sample is a peak when v > neighbors and > threshold, and respect min interval
+  const countPeaks = (
+    seq: Array<{ t: number; v: number }>,
+    threshold: number,
+    minIntervalMs = 250
+  ) => {
+    let count = 0;
+    let lastPeakT = -Infinity;
+    for (let i = 1; i < seq.length - 1; i++) {
+      const prev = seq[i - 1].v;
+      const cur = seq[i].v;
+      const next = seq[i + 1].v;
+      // require cur be local maximum and above threshold
+      if (cur > prev && cur > next && cur > threshold && seq[i].t - lastPeakT > minIntervalMs) {
+        count++;
+        lastPeakT = seq[i].t;
+      }
+    }
+    return count;
+  };
 
   // compute features on sliding window and classify
   const computeFeaturesAndClassify = () => {
@@ -170,7 +247,7 @@ const Exercise: React.FC = () => {
     const buf = samplesRef.current.filter((s) => s.t >= cutoff);
     samplesRef.current = buf; // save trimmed buffer
 
-    if (buf.length < 6) {
+    if (buf.length < 4) {
       setActivity("idle");
       return;
     }
@@ -183,14 +260,14 @@ const Exercise: React.FC = () => {
     const stdMag = Math.sqrt(variance);
     const maxMag = Math.max(...mags);
 
-    // peak detection in magnitude and z-axis
+    // peak detection in magnitude and vertical component (laz)
     const peakThreshold = magPeakThreshold;
-    const peaksMag = countPeaks(buf.map((s) => ({ t: s.t, v: s.mag })), peakThreshold);
-    const peaksZ = countPeaks(buf.map((s) => ({ t: s.t, v: Math.abs(s.az) })), peakThreshold);
+    const peaksMag = countPeaks(buf.map((s) => ({ t: s.t, v: s.mag })), peakThreshold, 250);
+    const peaksZ = countPeaks(buf.map((s) => ({ t: s.t, v: Math.abs(s.laz) })), peakThreshold, 250);
 
     // estimate cadence (Hz) = peaks per second
-    const windowSec = (buf[buf.length - 1].t - buf[0].t) / 1000 || windowSize / 1000;
-    const cadenceHz = peaksMag / Math.max(0.001, windowSec);
+    const windowSec = Math.max(0.001, (buf[buf.length - 1].t - buf[0].t) / 1000);
+    const cadenceHz = peaksMag / windowSec;
 
     if (DEBUG) {
       // eslint-disable-next-line no-console
@@ -205,47 +282,25 @@ const Exercise: React.FC = () => {
       });
     }
 
-    // Simple rule-based classification
+    // Simple rule-based classification (adjusted heuristics)
     const isLikelyJump =
-      maxMag > jumpAmpThreshold &&
-      peaksMag > 2 &&
-      peaksZ / Math.max(1, peaksMag) >= verticalPeakRatioForJump;
+      maxMag > jumpAmpThreshold && peaksMag >= 2 && peaksZ / Math.max(1, peaksMag) >= verticalPeakRatioForJump;
 
     const isLikelyWalk =
       cadenceHz >= cadenceWalkingMin &&
       cadenceHz <= cadenceWalkingMax &&
-      stdMag < 4.5 &&
-      peaksMag >= 2;
+      stdMag < 6.0 && // allow slightly larger std for different placements
+      peaksMag >= 1;
 
     if (isLikelyJump) {
       setActivity("jumping");
     } else if (isLikelyWalk) {
       setActivity("walking");
-    } else if (maxMag < 1.2 && stdMag < 0.7) {
+    } else if (maxMag < 0.9 && stdMag < 0.6) {
       setActivity("idle");
     } else {
       setActivity("unknown");
     }
-  };
-
-  // count peaks naive: a sample is a peak when v > neighbors and > threshold, and respect min interval
-  const countPeaks = (
-    seq: Array<{ t: number; v: number }>,
-    threshold: number,
-    minIntervalMs = 300
-  ) => {
-    let count = 0;
-    let lastPeakT = -Infinity;
-    for (let i = 1; i < seq.length - 1; i++) {
-      const prev = seq[i - 1].v;
-      const cur = seq[i].v;
-      const next = seq[i + 1].v;
-      if (cur > prev && cur > next && cur > threshold && seq[i].t - lastPeakT > minIntervalMs) {
-        count++;
-        lastPeakT = seq[i].t;
-      }
-    }
-    return count;
   };
 
   // setup motion listener and periodic feature compute
@@ -253,13 +308,15 @@ const Exercise: React.FC = () => {
     lastMagRef.current = 0;
     lastStepTimeRef.current = 0;
     samplesRef.current = [];
+    gravityRef.current = { x: 0, y: 0, z: 0 };
 
-    let featureTimer: number | null = null;
+    const alpha = 0.85; // low-pass alpha for gravity estimation (higher => slower change)
 
     const handleMotion = (event: DeviceMotionEvent) => {
-      if (!isExercisingRef.current) return;
+      // we accept motion if either exercising OR calibrating (calibration requires startExercise in this UI)
+      if (!isExercisingRef.current && !calibratingRef.current) return;
 
-      // 優先使用不含重力的加速度（若可用），否則退回包含重力
+      // 優先使用不含重力的加速度（若可用），否則退回包含重力並做 gravity 抽離
       const a = event.acceleration ?? event.accelerationIncludingGravity;
       if (!a) return;
 
@@ -267,49 +324,196 @@ const Exercise: React.FC = () => {
       const ay = a.y ?? 0;
       const az = a.z ?? 0;
 
-      const m = mag(ax, ay, az);
+      // update gravity estimate (low-pass)
+      gravityRef.current.x = alpha * gravityRef.current.x + (1 - alpha) * ax;
+      gravityRef.current.y = alpha * gravityRef.current.y + (1 - alpha) * ay;
+      gravityRef.current.z = alpha * gravityRef.current.z + (1 - alpha) * az;
+
+      // linear acceleration = raw - gravity
+      const lax = ax - gravityRef.current.x;
+      const lay = ay - gravityRef.current.y;
+      const laz = az - gravityRef.current.z;
+
+      // magnitude on linear acceleration
+      const linearMag = mag(lax, lay, laz);
       const now = Date.now();
 
-      // add to buffer
-      samplesRef.current.push({ t: now, ax, ay, az, mag: m });
+      // add to buffer for normal feature/computation
+      samplesRef.current.push({ t: now, lax, lay, laz, mag: linearMag });
 
-      // naive step detection (保留原本的邏輯)
-      const last = lastMagRef.current || m;
-      const delta = Math.abs(m - last);
-      lastMagRef.current = m;
+      // if calibrating, also store into calibration buffer
+      if (calibratingRef.current) {
+        calibBufferRef.current.push({ t: now, lax, lay, laz, mag: linearMag });
+      }
+
+      // naive step detection on linear magnitude
+      const last = lastMagRef.current || linearMag;
+      const delta = Math.abs(linearMag - last);
+      lastMagRef.current = linearMag;
 
       if (delta > stepThreshold && now - lastStepTimeRef.current > minStepInterval) {
         setSteps((prev) => prev + 1);
         lastStepTimeRef.current = now;
         if (DEBUG) {
           // eslint-disable-next-line no-console
-          console.debug("step detected. delta:", delta);
+          console.debug("step detected. delta:", delta, "linearMag:", linearMag);
         }
       }
 
       // start periodic feature computation timer if not exist
-      if (!featureTimer) {
-        featureTimer = window.setInterval(() => {
+      if (!featureTimerRef.current) {
+        featureTimerRef.current = window.setInterval(() => {
           computeFeaturesAndClassify();
-        }, featureComputeIntervalMs);
+        }, featureComputeIntervalMs) as unknown as number;
       }
     };
 
     motionHandlerRef.current = handleMotion;
     window.addEventListener("devicemotion", handleMotion);
+  };
 
-    // ensure we clear feature timer when stopping
-    const cleanupFeatureTimer = () => {
-      if (featureTimer) {
-        clearInterval(featureTimer);
-        featureTimer = null;
-      }
+  // calibration flow: requires user to first press 開始運動 (so permissions are granted & listener active)
+  const startCalibration = (label: CalibLabel) => {
+    if (!isExercisingRef.current) {
+      toast.error("請先按「開始運動」再進行校準（能確保取得感測器資料）");
+      return;
+    }
+    if (calibratingRef.current) {
+      toast.error("正在校準中");
+      return;
+    }
+
+    calibBufferRef.current = [];
+    calibLabelRef.current = label;
+    setCalibCountdown(calibDuration);
+    setCalibrating(true);
+    calibratingRef.current = true;
+
+    // countdown timer
+    calibTimerRef.current = window.setInterval(() => {
+      setCalibCountdown((prev) => {
+        if (prev <= 1) {
+          // stop
+          if (calibTimerRef.current) {
+            clearInterval(calibTimerRef.current);
+            calibTimerRef.current = null;
+          }
+          setCalibrating(false);
+          calibratingRef.current = false;
+          finalizeCalibration();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000) as unknown as number;
+
+    toast.success(`開始校準：請進行 ${label === "walking" ? "走路" : "開合跳"}（${calibDuration} 秒）`);
+  };
+
+  const finalizeCalibration = () => {
+    const buf = calibBufferRef.current.slice();
+    if (!buf.length) {
+      toast.error("校準失敗：沒有收集到資料");
+      return;
+    }
+
+    // compute features
+    const mags = buf.map((s) => s.mag);
+    const meanMag = mags.reduce((a, b) => a + b, 0) / mags.length;
+    const variance = mags.reduce((a, b) => a + (b - meanMag) * (b - meanMag), 0) / Math.max(1, mags.length - 1);
+    const stdMag = Math.sqrt(variance);
+    const maxMag = Math.max(...mags);
+
+    const peaksMag = countPeaks(buf.map((s) => ({ t: s.t, v: s.mag })), Math.max(0.3, meanMag + stdMag * 0.2), 200);
+    const peaksZ = countPeaks(buf.map((s) => ({ t: s.t, v: Math.abs(s.laz) })), Math.max(0.3, meanMag + stdMag * 0.2), 200);
+
+    const windowSec = Math.max(0.001, (buf[buf.length - 1].t - buf[0].t) / 1000);
+    const cadenceHz = peaksMag / windowSec;
+
+    const label = calibLabelRef.current;
+
+    // derive recommended params
+    const recommended: any = {
+      label,
+      meanMag,
+      stdMag,
+      maxMag,
+      peaksMag,
+      peaksZ,
+      cadenceHz,
     };
 
-    // attach a clean-up when stopping via stopExercise() or unmount
-    // stopExercise already removes event listener; we'll also ensure timer cleared in effect cleanup below
-    // store cleanup function on ref for later if desired (not strictly necessary here)
+    // suggested thresholds heuristics:
+    if (label === "walking") {
+      // walking: step threshold small, cadence range around measured cadence
+      recommended.stepThreshold = Math.max(0.4, meanMag + stdMag * 0.25);
+      recommended.magPeakThreshold = Math.max(0.5, meanMag + stdMag * 0.45);
+      recommended.cadenceWalkingMin = Math.max(0.4, cadenceHz - 0.6);
+      recommended.cadenceWalkingMax = Math.min(4, cadenceHz + 0.6);
+      // jumping threshold keep unchanged here
+    } else if (label === "jumping") {
+      // jumping: strong peaks; set jump amp threshold based on observed max
+      recommended.jumpAmpThreshold = Math.max(5, maxMag * 0.75);
+      recommended.magPeakThreshold = Math.max(0.8, meanMag + stdMag * 0.6);
+    }
+
+    setLastCalibResult(recommended);
+    toast.success("校準完成，已產生建議值");
   };
+
+  const applyRecommended = () => {
+    if (!lastCalibResult) {
+      toast.error("沒有校準結果可以套用");
+      return;
+    }
+    const r = lastCalibResult;
+    if (r.stepThreshold) setStepThreshold(roundNum(r.stepThreshold));
+    if (r.magPeakThreshold) setMagPeakThreshold(roundNum(r.magPeakThreshold));
+    if (r.jumpAmpThreshold) setJumpAmpThreshold(Math.round(r.jumpAmpThreshold));
+    if (r.cadenceWalkingMin) setCadenceWalkingMin(roundNum(r.cadenceWalkingMin));
+    if (r.cadenceWalkingMax) setCadenceWalkingMax(roundNum(r.cadenceWalkingMax));
+    toast.success("已套用建議參數");
+  };
+
+  const saveParams = () => {
+    const payload = {
+      stepThreshold,
+      magPeakThreshold,
+      jumpAmpThreshold,
+      cadenceWalkingMin,
+      cadenceWalkingMax,
+      verticalPeakRatioForJump,
+      windowSizeMs,
+      featureComputeIntervalMs,
+      morningBonusPercent,
+      rainyBonusPercent,
+    };
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(payload));
+    setSavedParams(payload);
+    toast.success("參數已儲存到 localStorage");
+  };
+
+  const loadParams = () => {
+    try {
+      const raw = localStorage.getItem(LOCAL_KEY);
+      if (!raw) {
+        toast.error("找不到已儲存的參數");
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (parsed.stepThreshold) setStepThreshold(parsed.stepThreshold);
+      if (parsed.magPeakThreshold) setMagPeakThreshold(parsed.magPeakThreshold);
+      if (parsed.jumpAmpThreshold) setJumpAmpThreshold(parsed.jumpAmpThreshold);
+      if (parsed.cadenceWalkingMin) setCadenceWalkingMin(parsed.cadenceWalkingMin);
+      if (parsed.cadenceWalkingMax) setCadenceWalkingMax(parsed.cadenceWalkingMax);
+      setSavedParams(parsed);
+      toast.success("已載入儲存參數");
+    } catch (err) {
+      toast.error("載入參數失敗");
+    }
+  };
+
+  const roundNum = (v: number) => Math.round(v * 100) / 100;
 
   // Weather detection using open-meteo (no API key). Attempts geolocation and checks hourly precipitation.
   const detectWeatherNow = () => {
@@ -339,7 +543,6 @@ const Exercise: React.FC = () => {
           }
           // find index closest to current local time (hour aligned)
           const now = new Date();
-          // build ISO hour string in same format as API (they return ISO strings like '2025-11-08T03:00')
           const nearestIndex = times.reduce((bestIdx: number, t, i) => {
             const dt = Math.abs(new Date(t).getTime() - now.getTime());
             return dt < Math.abs(new Date(times[bestIdx]).getTime() - now.getTime()) ? i : bestIdx;
@@ -371,6 +574,12 @@ const Exercise: React.FC = () => {
     return () => {
       if (durationIntervalRef.current) {
         clearInterval(durationIntervalRef.current);
+      }
+      if (featureTimerRef.current) {
+        clearInterval(featureTimerRef.current);
+      }
+      if (calibTimerRef.current) {
+        clearInterval(calibTimerRef.current);
       }
       if (motionHandlerRef.current) {
         window.removeEventListener("devicemotion", motionHandlerRef.current);
@@ -408,6 +617,7 @@ const Exercise: React.FC = () => {
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• 持續運動提升手雞各項數值</li>
                 <li>• 搖晃手機即可自動偵測步數</li>
+                <li>• 校準模式可以收集走路 / 開合跳樣本並建議參數</li>
               </ul>
             </div>
 
@@ -455,8 +665,8 @@ const Exercise: React.FC = () => {
             <label className="text-sm">步伐閾值 (delta)：{stepThreshold.toFixed(2)}</label>
             <input
               type="range"
-              min={0.5}
-              max={6}
+              min={0.3}
+              max={3}
               step={0.1}
               value={stepThreshold}
               onChange={(e) => setStepThreshold(parseFloat(e.target.value))}
@@ -465,8 +675,8 @@ const Exercise: React.FC = () => {
             <label className="text-sm">mag 峰值閾值：{magPeakThreshold.toFixed(2)}</label>
             <input
               type="range"
-              min={0.5}
-              max={6}
+              min={0.3}
+              max={3}
               step={0.1}
               value={magPeakThreshold}
               onChange={(e) => setMagPeakThreshold(parseFloat(e.target.value))}
@@ -476,7 +686,7 @@ const Exercise: React.FC = () => {
             <input
               type="range"
               min={4}
-              max={20}
+              max={30}
               step={0.5}
               value={jumpAmpThreshold}
               onChange={(e) => setJumpAmpThreshold(parseFloat(e.target.value))}
@@ -485,7 +695,7 @@ const Exercise: React.FC = () => {
             <label className="text-sm">視窗大小 (ms)：{windowSizeMs} ms</label>
             <input
               type="range"
-              min={1000}
+              min={800}
               max={5000}
               step={100}
               value={windowSizeMs}
@@ -505,6 +715,70 @@ const Exercise: React.FC = () => {
             <div className="flex items-center justify-between">
               <label className="text-sm">顯示偵錯 (DEBUG)</label>
               <input type="checkbox" checked={DEBUG} onChange={(e) => setDEBUG(e.target.checked)} />
+            </div>
+
+            <hr />
+
+            <h4 className="font-medium">校準模式 (請先按「開始運動」以取得感測器權限)</h4>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => startCalibration("walking")}
+                disabled={calibrating || !isExercising}
+                className="px-3 py-1"
+              >
+                開始校準：走路 ({calibDuration}s)
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => startCalibration("jumping")}
+                disabled={calibrating || !isExercising}
+                className="px-3 py-1"
+              >
+                開始校準：開合跳 ({calibDuration}s)
+              </Button>
+              <div className="text-sm">
+                {calibrating ? `校準中 ${calibCountdown}s` : "準備中"}
+              </div>
+            </div>
+
+            {lastCalibResult && (
+              <div className="p-2 bg-muted rounded">
+                <div className="text-sm font-medium">最近一次校準結果（{lastCalibResult.label}）</div>
+                <div className="text-xs text-muted-foreground">
+                  mean mag: {roundNum(lastCalibResult.meanMag)}, std: {roundNum(lastCalibResult.stdMag)}, max:{" "}
+                  {roundNum(lastCalibResult.maxMag)}, peaks: {lastCalibResult.peaksMag}, cadence:{" "}
+                  {roundNum(lastCalibResult.cadenceHz)} Hz
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" onClick={applyRecommended}>
+                    套用建議參數
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const copy = { ...lastCalibResult };
+                      localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...savedParams, lastCalibResult: copy }));
+                      toast.success("校準結果暫存於 localStorage");
+                    }}
+                  >
+                    儲存此校準結果
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-2 flex gap-2 items-center">
+              <Button size="sm" onClick={saveParams}>
+                儲存目前參數
+              </Button>
+              <Button size="sm" onClick={loadParams}>
+                載入儲存參數
+              </Button>
+              <div className="text-sm">
+                {savedParams ? "已載入參數" : "尚未有儲存參數"}
+              </div>
             </div>
 
             <hr />
