@@ -76,17 +76,40 @@ const Pet = ({ stage, mood }: PetProps) => {
 
   return (
     <div 
-      className="relative bg-game-pet-area rounded-2xl shadow-inner overflow-hidden"
-      style={{ width: containerSize.width, height: containerSize.height }}
+      className="relative rounded-2xl shadow-inner overflow-hidden"
+      style={{ 
+        width: containerSize.width, 
+        height: containerSize.height,
+        background: 'linear-gradient(to bottom, var(--tp-primary-200) 0%, #90c956 50%, #7ab642 100%)'
+      }}
     >
+      {/* Grass decorations */}
+      <div className="absolute bottom-0 left-0 right-0 h-12 flex items-end justify-around">
+        {[...Array(15)].map((_, i) => (
+          <div 
+            key={i}
+            className="w-1 rounded-t-full animate-pulse"
+            style={{
+              height: `${Math.random() * 20 + 10}px`,
+              backgroundColor: 'var(--tp-primary-600)',
+              animationDelay: `${i * 0.2}s`
+            }}
+          />
+        ))}
+      </div>
+      
       <div
         ref={petRef}
-        className={`absolute rounded-lg ${getPetColor()} transition-colors duration-500 flex items-center justify-center text-2xl`}
+        className="absolute transition-all duration-200 flex items-center justify-center"
         style={{
           width: petSize,
           height: petSize,
           left: position.x,
           top: position.y,
+          fontSize: petSize * 0.8,
+          filter: mood < 40 ? 'grayscale(30%)' : 'none',
+          transform: `scaleX(${velocity.x > 0 ? 1 : -1})`,
+          animation: 'bounce 0.5s infinite'
         }}
       >
         {getPetEmoji()}

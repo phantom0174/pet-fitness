@@ -1,0 +1,51 @@
+.tp-button {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+}
+
+.tp-button--primary {
+  background-color: var(--tp-primary-500);
+  color: var(--tp-white);
+  border-color: var(--tp-primary-500);
+}
+
+.tp-button--primary:hover:not(.tp-button--disabled) {
+  background-color: var(--tp-primary-600);
+  border-color: var(--tp-primary-600);
+}
+
+.tp-button--secondary {
+  background-color: var(--tp-white);
+  color: var(--tp-primary-500);
+  border-color: var(--tp-primary-500);
+}
+
+.tp-button--secondary:hover:not(.tp-button--disabled) {
+  background-color: var(--tp-primary-50);
+}
+
+.tp-button--alarm {
+  background-color: var(--tp-red-500);
+  color: var(--tp-white);
+  border-color: var(--tp-red-500);
+}
+
+.tp-button--alarm:hover:not(.tp-button--disabled) {
+  background-color: var(--tp-red-600);
+  border-color: var(--tp-red-600);
+}
+
+.tp-button--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
