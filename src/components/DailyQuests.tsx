@@ -39,7 +39,8 @@ const DAILY_QUESTS = [
 ];
 
 const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
-    const [completedQuests, setCompletedQuests] = useState<Set<number>>(new Set());
+    const [claimedQuests, setClaimedQuests] = useState<Set<number>>(new Set());
+    const [claimableQuests, setClaimableQuests] = useState<Set<number>>(new Set());
     const [isLoading, setIsLoading] = useState(true);
     const [claiming, setClaiming] = useState<number | null>(null);
 
@@ -50,13 +51,52 @@ const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
         try {
             const data = await getUserDailyQuests(userId);
 
-            // 後端返回格式: { quest_1_completed, quest_2_completed, quest_3_completed }
-            const completed = new Set<number>();
-            if (data.quest_1_completed) completed.add(1);
-            if (data.quest_2_completed) completed.add(2);
-            if (data.quest_3_completed) completed.add(3);
+            // Reset sets
+            const claimed = new Set<number>();
+            const claimable = new Set<number>();
 
-            setCompletedQuests(completed);
+            // Support explicit fields if backend returns clear names
+            // e.g., quest_1_claimed, quest_1_claimable
+            for (const q of DAILY_QUESTS) {
+                const id = q.id;
+                const claimedKey = `quest_${id}_claimed`;
+                const completedKey = `quest_${id}_completed`;
+                const claimableKey = `quest_${id}_claimable`;
+
+                // Determine claimed/claimed-like value
+                let isClaimed = false;
+                if (data && typeof data[claimedKey] !== "undefined") {
+                    isClaimed = !!data[claimedKey];
+                } else if (data && typeof data[completedKey] !== "undefined") {
+                    // Backwards compat: assume completed == claimed (preferred backend should be explicit)
+                    isClaimed = !!data[completedKey];
+                }
+
+                if (isClaimed) claimed.add(id);
+
+                // Determine claimable
+                let isClaimable = false;
+                if (data && typeof data[claimableKey] !== "undefined") {
+                    isClaimable = !!data[claimableKey];
+                } else {
+                    // Fallback: derive claimable from available stats if present
+                    if (id === 1) {
+                        // daily login: claimable if not claimed (perform_daily_check should reset claimed=false daily)
+                        isClaimable = !isClaimed;
+                    } else if (id === 2) {
+                        const secs = data?.daily_exercise_seconds ?? 0;
+                        isClaimable = !isClaimed && secs >= 600;
+                    } else if (id === 3) {
+                        const steps = data?.daily_steps ?? 0;
+                        isClaimable = !isClaimed && steps >= 5000;
+                    }
+                }
+
+                if (isClaimable) claimable.add(id);
+            }
+
+            setClaimedQuests(claimed);
+            setClaimableQuests(claimable);
         } catch (error) {
             console.error("Failed to load daily quests:", error);
             toast.error("載入每日任務失敗");
@@ -78,14 +118,29 @@ const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
             const result = await claimDailyQuest(userId, questId);
             if (result.success) {
                 toast.success(`任務完成！💪 +${result.rewards.strength}, ⚡ +${result.rewards.stamina}, 😊 +${result.rewards.mood}`);
-                setCompletedQuests(prev => {
+                // Mark as claimed locally and refresh state from server to be safe
+                setClaimedQuests(prev => {
+                    const newSet = new Set(prev);
+                    newSet.add(questId); // add instead of delete
+                    return newSet;
+                });
+                // Remove from claimable set if present
+                setClaimableQuests(prev => {
                     const newSet = new Set(prev);
                     newSet.delete(questId);
                     return newSet;
                 });
+
                 onQuestCompleted?.();
+
+                // Refresh from backend to ensure consistency (recommended)
+                await loadQuests();
+            } else {
+                // backend returned success:false with message
+                toast.error(result.message || "領取失敗");
             }
         } catch (error) {
+            console.error("Claim error:", error);
             toast.error("領取獎勵失敗");
         } finally {
             setClaiming(null);
@@ -107,13 +162,14 @@ const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
                 每日任務
             </h2>
             {DAILY_QUESTS.map((quest) => {
-                const isCompleted = completedQuests.has(quest.id);
+                const isClaimed = claimedQuests.has(quest.id);
+                const isClaimable = claimableQuests.has(quest.id);
 
                 return (
                     <Card key={quest.id} className="p-4">
                         <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-3 flex-1">
-                                {isCompleted ? (
+                                {isClaimed ? (
                                     <CheckCircle2 className="w-6 h-6 text-green-500 flex-shrink-0" />
                                 ) : (
                                     <Circle className="w-6 h-6 text-gray-300 flex-shrink-0" />
@@ -144,8 +200,10 @@ const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
                                 </div>
                             </div>
 
-                            {/* 領取按鈕 */}
-                            {!isCompleted && (
+                            {/* 領取按鈕 / 狀態 */}
+                            {isClaimed ? (
+                                <div className="text-sm text-green-600 font-medium">已領取</div>
+                            ) : isClaimable ? (
                                 <Button
                                     onClick={() => handleClaimReward(quest.id)}
                                     size="sm"
@@ -153,6 +211,10 @@ const DailyQuests = ({ userId, onQuestCompleted }: DailyQuestsProps) => {
                                     className="bg-green-500 hover:bg-green-600"
                                 >
                                     {claiming === quest.id ? "領取中..." : "領取"}
+                                </Button>
+                            ) : (
+                                <Button size="sm" disabled className="bg-gray-200 text-gray-500">
+                                    未完成
                                 </Button>
                             )}
                         </div>
