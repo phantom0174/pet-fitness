@@ -1,0 +1,56 @@
+<svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Large muscular chicken - pixel style -->
+  <!-- Body -->
+  <rect x="16" y="44" width="48" height="16" fill="#FFD700"/>
+  <rect x="12" y="40" width="56" height="4" fill="#FFD700"/>
+  <rect x="8" y="36" width="64" height="4" fill="#FFED4E"/>
+  <rect x="10" y="32" width="60" height="4" fill="#FFED4E"/>
+  <rect x="12" y="28" width="56" height="4" fill="#FFED4E"/>
+  
+  <!-- Head -->
+  <rect x="24" y="24" width="32" height="4" fill="#FFED4E"/>
+  <rect x="28" y="20" width="24" height="4" fill="#FFF176"/>
+  <rect x="30" y="16" width="20" height="4" fill="#FFF176"/>
+  
+  <!-- Large Comb -->
+  <rect x="32" y="12" width="2" height="4" fill="#F44336"/>
+  <rect x="34" y="8" width="2" height="8" fill="#F44336"/>
+  <rect x="36" y="6" width="2" height="10" fill="#F44336"/>
+  <rect x="38" y="8" width="2" height="8" fill="#F44336"/>
+  <rect x="40" y="12" width="2" height="4" fill="#F44336"/>
+  
+  <!-- Eyes -->
+  <rect x="32" y="22" width="3" height="2" fill="#333333"/>
+  <rect x="45" y="22" width="3" height="2" fill="#333333"/>
+  
+  <!-- Beak -->
+  <rect x="36" y="25" width="8" height="4" fill="#333333"/>
+  <rect x="37" y="26" width="6" height="2" fill="#FF9800"/>
+  
+  <!-- Muscular Wings with Biceps -->
+  <!-- Left wing with bicep -->
+  <rect x="2" y="30" width="16" height="12" fill="#FFC107"/>
+  <rect x="0" y="26" width="8" height="8" fill="#FFB300"/> <!-- Left bicep -->
+  <rect x="2" y="24" width="6" height="4" fill="#FF8F00"/> <!-- Muscle definition -->
+  
+  <!-- Right wing with bicep -->
+  <rect x="62" y="30" width="16" height="12" fill="#FFC107"/>
+  <rect x="72" y="26" width="8" height="8" fill="#FFB300"/> <!-- Right bicep -->
+  <rect x="72" y="24" width="6" height="4" fill="#FF8F00"/> <!-- Muscle definition -->
+  
+  <!-- Chest muscles -->
+  <rect x="20" y="30" width="12" height="6" fill="#FFB300"/>
+  <rect x="48" y="30" width="12" height="6" fill="#FFB300"/>
+  
+  <!-- Muscle definition lines -->
+  <rect x="24" y="34" width="32" height="1" fill="#FFB300"/>
+  <rect x="20" y="38" width="40" height="1" fill="#FFB300"/>
+  
+  <!-- Tail feathers -->
+  <rect x="68" y="24" width="8" height="4" fill="#FFC107"/>
+  <rect x="70" y="20" width="6" height="4" fill="#FFD54F"/>
+  
+  <!-- Strong Feet -->
+  <rect x="28" y="60" width="8" height="8" fill="#FF9800"/>
+  <rect x="44" y="60" width="8" height="8" fill="#FF9800"/>
+</svg>

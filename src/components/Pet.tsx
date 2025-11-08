@@ -6,17 +6,31 @@ import PetMediumSvg from "@/assets/svg/pet-medium.svg";
 import PetLargeSvg from "@/assets/svg/pet-large.svg";
 import PetBuffSvg from "@/assets/svg/pet-buff.svg";
 
-// Walking frame imports
-import PetSmallWalk1 from "@/assets/svg/pet-small-walk/frame-1.svg";
-import PetSmallWalk2 from "@/assets/svg/pet-small-walk/frame-2.svg";
-import PetSmallWalk3 from "@/assets/svg/pet-small-walk/frame-3.svg";
-import PetSmallWalk4 from "@/assets/svg/pet-small-walk/frame-4.svg";
-import PetSmallWalk5 from "@/assets/svg/pet-small-walk/frame-5.svg";
-import PetSmallWalk6 from "@/assets/svg/pet-small-walk/frame-6.svg";
-import PetSmallWalk7 from "@/assets/svg/pet-small-walk/frame-7.svg";
-import PetSmallWalk8 from "@/assets/svg/pet-small-walk/frame-8.svg";
+// Walking frame imports for small pet (8 frames)
+import PetSmallWalk1 from "@/assets/svg/pet-small-walk/pet-small-1.png.png";
+import PetSmallWalk2 from "@/assets/svg/pet-small-walk/pet-small-2.png.png";
+import PetSmallWalk3 from "@/assets/svg/pet-small-walk/pet-small-3.png.png";
+import PetSmallWalk4 from "@/assets/svg/pet-small-walk/pet-small-4.png.png";
+// import PetSmallWalk5 from "@/assets/svg/pet-small-walk/pet-small-5.png.png";
 
-// Flying frame imports
+// Walking frame imports for medium pet (8 frames)
+import PetMediumWalk1 from "@/assets/svg/pet-medium-walk/pet-medium-1.png.png";
+import PetMediumWalk2 from "@/assets/svg/pet-medium-walk/pet-medium-2.png.png";
+import PetMediumWalk3 from "@/assets/svg/pet-medium-walk/pet-medium-3.png.png";
+import PetMediumWalk4 from "@/assets/svg/pet-medium-walk/pet-medium-4.png.png";
+
+// Walking frame imports for large pet (partial - will complete later)
+import PetLargeWalk1 from "@/assets/svg/pet-large-walk/pet-large-1.png.png";
+import PetLargeWalk2 from "@/assets/svg/pet-large-walk/pet-large-2.png.png";
+import PetLargeWalk3 from "@/assets/svg/pet-large-walk/pet-large-3.png.png";
+import PetLargeWalk4 from "@/assets/svg/pet-large-walk/pet-large-4.png.png";
+
+import PetBuffWalk1 from "@/assets/svg/pet-buff-walk/pet-buff-1.png.png";
+import PetBuffWalk2 from "@/assets/svg/pet-buff-walk/pet-buff-2.png.png";
+import PetBuffWalk3 from "@/assets/svg/pet-buff-walk/pet-buff-3.png.png";
+import PetBuffWalk4 from "@/assets/svg/pet-buff-walk/pet-buff-4.png.png";
+
+// Flying frame imports for small/medium/large pets
 import PetSmallFly1 from "@/assets/svg/pet-small-fly/pet-small-1.png.png";
 import PetSmallFly2 from "@/assets/svg/pet-small-fly/pet-small-2.png.png";
 import PetMediumFly1 from "@/assets/svg/pet-medium-fly/pet-medium-1.png.png";
@@ -28,10 +42,27 @@ import PetLargeFly2 from "@/assets/svg/pet-large-fly/pet-large-2.png.png";
 const getWalkFrame = (stage: string, frameIndex: number, direction: number) => {
   if (stage === "small") {
     const smallWalkFrames = [
-      PetSmallWalk1, PetSmallWalk2, PetSmallWalk3, PetSmallWalk4,
-      PetSmallWalk5, PetSmallWalk6, PetSmallWalk7, PetSmallWalk8
+      PetSmallWalk1, PetSmallWalk2, PetSmallWalk3, PetSmallWalk4
     ];
-    return smallWalkFrames[frameIndex % 8];
+    return smallWalkFrames[frameIndex % 4];
+  }
+  if (stage === "large") {
+    const largeWalkFrames = [
+      PetLargeWalk1, PetLargeWalk2, PetLargeWalk3, PetLargeWalk4
+    ];
+    return largeWalkFrames[frameIndex % 4];
+  }
+  if (stage === "medium") {
+    const mediumWalkFrames = [
+      PetMediumWalk1, PetMediumWalk2, PetMediumWalk3, PetMediumWalk4
+    ];
+    return mediumWalkFrames[frameIndex % 4];
+  }
+  if (stage === "buff") {
+    const buffWalkFrames = [
+      PetBuffWalk1, PetBuffWalk2, PetBuffWalk3, PetBuffWalk4
+    ];
+    return buffWalkFrames[frameIndex % 4];
   }
   
   // For other stages, return base SVG for now
@@ -348,16 +379,17 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
         setPosition(prev => ({ ...prev, y: Math.max(0, groundLevel - height) }));
         requestAnimationFrame(animateFlyUp);
       } else {
+        // Calculate the actual highest point position
+        const peakY = Math.max(0, groundLevel - flyHeight);
         const fallStartTime = Date.now();
-        const fallStartY = position.y;
         
         const animateFlyDown = () => {
           const fallElapsed = Date.now() - fallStartTime;
           const fallProgress = fallElapsed / flyDownDuration;
           
           if (fallProgress < 1) {
-            const fallDistance = (groundLevel - fallStartY) * Math.pow(fallProgress, 2);
-            setPosition(prev => ({ ...prev, y: Math.min(groundLevel, fallStartY + fallDistance) }));
+            const fallDistance = (groundLevel - peakY) * Math.pow(fallProgress, 2);
+            setPosition(prev => ({ ...prev, y: Math.min(groundLevel, peakY + fallDistance) }));
             requestAnimationFrame(animateFlyDown);
           } else {
             clearInterval(flyFrameInterval);
@@ -476,6 +508,7 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
   const handlePetClick = () => {
     // Cycle through: 0 = strength, 1 = stamina, 2 = mood, then back to 0.
     // If a manual timer exists, cancel it and immediately advance to the next stage.
+    performFly();
     if (manualTimerRef.current) {
       clearTimeout(manualTimerRef.current);
       manualTimerRef.current = null;
