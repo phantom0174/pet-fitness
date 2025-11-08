@@ -232,6 +232,7 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
   // helper message generators
   const genStrengthMessage = (value?: number, max = 120) => {
     if (value == null) return "力量資訊不可用";
+    if (value <= 0) return `今天還沒有運動，趕快來訓練吧！💤`;
     if (value < max / 4) return `力量很低，需要多做基礎訓練並給予休息或營養補充。`;
     if (value < max / 2) return `力量有點不足，持續訓練會有提升喔！`;
     return `力量良好，繼續保持！`;
@@ -247,6 +248,7 @@ const Pet = ({ stage, mood, message, startMessageTimer, strength, strengthMax, s
 
   const genMoodMessage = (moodVal?: number) => {
     if (moodVal == null) return "心情資訊不可用";
+    if (moodVal <= 0) return `心情好糟糕QQ 需要運動一下緩解心情！💤`;
     if (moodVal <= 40) return `心情較差，可以做些放鬆或聽音樂喔。`;
     if (moodVal <= 60) return `心情還好，咕咕～感覺還不錯呢！`;
     return `咕咕！心情超好，繼續保持運動習慣喔！💪`;
