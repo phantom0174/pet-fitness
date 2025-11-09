@@ -68,7 +68,7 @@ const Exercise: React.FC = () => {
   const [cadenceWalkingMax] = useState<number>(Math.round((WALK_CAL.cadence + 0.6) * 100) / 100); // ~3.36
 
   // min interval for steps
-  const minStepInterval = 400; // ms
+  const minStepInterval = 400; // ms 
 
   // buffer for sliding window (store linear accel mag)
   const samplesRef = useRef<
